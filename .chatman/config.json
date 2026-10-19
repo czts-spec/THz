@@ -1,0 +1,14 @@
+{
+  "project": "THz",
+  "display_name": "THz",
+  "description": "TeraHertz",
+  "profile": "czts-spec",
+  "source_profile_repo": "czts-spec/dtba3a-del",
+  "chatman_version": "2.1-known-subagents",
+  "default_branch": "main",
+  "rules_file": ".chatman/rules.md",
+  "readme_file": ".chatman/README.md",
+  "branch_policy": "main-only",
+  "chatlog_enabled": true,
+  "repo_full_name": "czts-spec/THz"
+}
