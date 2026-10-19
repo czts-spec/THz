@@ -1,0 +1,3 @@
+# Резервное зеркало не хранится в git (см. ENV/Qwen/README.md): зеркало живёт в рабочей копии дома.
+mirror/workspace.git/
+mirror/
