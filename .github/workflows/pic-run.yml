@@ -1,0 +1,38 @@
+name: PIC run (OUTPUT scripts)
+# Домашний workflow: выполняет скрипты OUTPUT в чисто настроенной среде GitHub Actions.
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: "Скрипт в OUTPUT/ (без пути)"
+        required: true
+        default: "pic_rf.py"
+  push:
+    paths:
+      - "OUTPUT/pic_rf.py"
+      - ".github/workflows/pic-run.yml"
+
+jobs:
+  pic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install numpy matplotlib
+      - name: Run ${{ github.event.inputs.script || 'pic_rf.py' }}
+        run: |
+          SCRIPT="${{ github.event.inputs.script || 'pic_rf.py' }}"
+          cd OUTPUT
+          python "$SCRIPT" | tee ../pic_run.log
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pic-results
+          path: |
+            pic_run.log
+            OUTPUT/*.png
+          if-no-files-found: warn
