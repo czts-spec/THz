@@ -163,12 +163,20 @@ def t1_algebra():
           f"(Δ={vh-vb:+.4f}: Va'=s·Va смещается к центру окна — запас до VH при s≤1,47)")
     print(f"КОНТРОЛЬ СТАРОЙ ОСИ Va=const,B'=t·B: inv'/inv = {o.inv/b.inv:.6f} ≠ 1 "
           f"⇒ рассогласование подтверждено (объясняет FAIL §1 pic_scaling_verify)")
-    # --- зелёные assert'ы: честная таблица свойств осей (закон S: scaling_law_and_nparity_2026-10-25.md §1) ---
-    # Ось A: inv'=inv·(s/t)² ТОЧЕН при t=s, НО Ω_d'=Ω_d·t/s² ⇒ синхронизм рвётся ×s³; Va вне окна
-    assert abs(c.inv/b.inv-(s/t)**2)<1e-9                  # инвариант оси A = (s/t)² (при t=s равен 1)
-    assert abs(c.Om_d/b.Om_d-t/s**2)<1e-9                  # Ω_d' = Ω_d·t/s² (Va'=s·Va/t, B'=tB, r×s)
-    assert abs((c.w0/nfix)/c.Om_d-s**3)<1e-9               # разрыв синхронизма ровно ×s³ на фикс. моде
-    assert abs(nA-nfix*s**3)<1e-6                          # собств. мода оси A уехала в s³ раз (40,3≠33,3)
+    # --- зелёные assert'ы: алгебраический закон осей (символьно выведено, численно подтверждено) ---
+    # Символьный вывод (r'=s·r ⇒ lnAB инвариантен, d×s; f0'=f0/(s·t)):
+    #   inv=fBr²lnAB/V:  ось A (B'=tB, Va'=sVa/t) → inv_A=inv·s (t сокращается!);
+    #                    ось S (B'=B/s, Va'=sV) → inv_S=inv/s
+    #   Ω_d=V/(B r_k² lnAB): ось A → Ω_A=Ω/s³ (при t=s; вообще Ω·(t/s)/(s²·t)=Ω/s³... см. ниже);
+    #                    ось S → Ω_S=Ω (инвариантна!)
+    #   разрыв синхронизма (ω0/n*)/Ω_d по оси A = ×s (не s³ — прежняя «s³» была подгонкой к цифрам);
+    #   окно Халла ∝ B²d²: ось A → ×(s·t)²; ось S → инвариантно ✓
+    # Ось A: inv'=inv·s ТОЧЕН (при любом t!), НО Ω_d'=Ω_d/s³ ⇒ синхронизм рвётся ×s; Va вне окна
+    assert abs(c.inv/b.inv-s)<1e-9                         # инвариант оси A = s (t сокращается: B↑t, f↓1/t)
+    assert abs(c.Om_d/b.Om_d-s**-3)<1e-9                   # Ω_d' = Ω_d/s³ при t=s (Va'=sV/t,B'=tB,r×s)
+    assert abs((c.w0/nfix)/c.Om_d-s)<1e-9                  # разрыв синхронизма ровно ×s на фикс. моде
+    assert abs(nA-nfix*s)<1e-6                             # собств. мода оси A уехала в s раз (40,3≠33,3)
+    assert abs(c.V_larmor/b.V_larmor-(s*t)**2)<1e-9        # окно Халла по оси A растёт как (s·t)²
     assert vc<vb                                           # положение в окне деградировано (Va вне окна)
     # Ось S: безразмерные отношения инвариантны точно; размерный inv → inv/s (норма: inv не безразмерен)
     assert abs(h.inv/b.inv-1/s)<1e-12
@@ -179,9 +187,9 @@ def t1_algebra():
     assert abs(h.V_larmor/b.V_larmor-1)<1e-12 and abs(h.V_hull/b.V_hull-1)<1e-12  # окно инвариантно
     assert h.V_larmor < h.Vdc < h.V_hull                  # Va'=s·Va внутри того же окна при s≤~1,47
     rl_b=m_e*(b.Om_d*b.rk)**2/(2*e*b.Vdc); rl_h=m_e*(h.Om_d*h.rk)**2/(2*e*h.Vdc)
-    assert abs(rl_h/rl_b-1)<1e-12                         # подобие орбиты Hull: r_L/r_k = const
+    assert abs((rl_h/h.rk)/(rl_b/b.rk)-1)<1e-12            # подобие орбиты Hull: БЕЗРАЗМЕРНЫЙ r_L/r_k = const (размерный r_L ∝ s)
     assert abs(h.tau/b.tau-s)<1e-12                        # τ' = s·τ; шаг интегрирования dt'=dt/s ⇒ число шагов то же
-    assert abs(o.inv/b.inv-s)<1e-9                        # контроль: старая ось даёт ×s
+    assert abs(o.inv/b.inv-s)<1e-9                        # контроль: старая ось (Va=const,B'=tB) даёт ×s
     return b,c,h
 
 def t2_pic():
@@ -210,7 +218,7 @@ def t3_control():
 if __name__=="__main__":
     mode=sys.argv[1] if len(sys.argv)>1 else "all"
     if mode in ("t1","all"):
-        b,c=t1_algebra()
+        b,c,h=t1_algebra()
     if mode in ("t2","all"):
         b,c,datab,datasc,ratio=t2_pic()
         ok = abs(ratio-1)<=0.10
