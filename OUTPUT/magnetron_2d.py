@@ -73,19 +73,21 @@ print(f"Nr={Nr} Nth={Nth} n_s={n_s} N={N} M={M} N_e={N_e:.3e} "
 A_hull = Va/(B*lnAB)          # м^2/с — константа Халла (поток E через цилиндр / 2πB)
 
 def hull_vth(rr):
-    """Точная круговая орбита Халла в коаксиальном E×B [выведено и проверено здесь]:
+    """Точная круговая орбита Халла в коаксиальном E×B [выведено и проверено здесь, редакция-5]:
     баланс v^2/r = (e/m)(E(r) - v B), E(r)=Va/(r lnAB) (катод +Va, дрейф по
-    -phi_hat при B=+z) даёт квадратное уравнение v^2 + wc r v - A/r = 0.
-    Меньший корень в УСТОЙЧИВОЙ форме (без catastrophic cancellation, редакция-4):
-        v(r) = 2A / ( r*( sqrt(A^2/r^2 + 4 A wc r) + A/r ) ).
-    Проверка размерности: [м^2/с] / ([м]·[м/с]) = [м/с] — верно.
-    Тождество на катоде: x=2A/(wc r^3)<<1 => sqrt(A^2/r^2+4A wc r)=A/r*sqrt(1+x)
-    => v(r_k)=A/(2 r_k)=v_d/2. Двойное расхождение с корпусным v_d — физично:
-    Hull-старт pic-цепочки (v=A/r) есть ЧИСТЫЙ E×B-дрейф циклоиды, а не круговая
-    орбита; для эталона инвариантности пуша используется именно он (редакция-1),
-    т.к. K+|ePhi| сохраняется и для циклоиды (среднее по ларморовскому витку)."""
-    s = np.sqrt(A_hull**2/rr**2 + 4*A_hull*wc*rr)
-    return 2*A_hull/(rr*(s + A_hull/rr))
+    -phi_hat при B=+z). Обозначим A = Va/(B lnAB) [м^2/с]; тогда eE/m = wc*A/r
+    (поскольку e*Va/(m lnAB) = (eB/m)*A = wc*A). Уравнение:
+        v^2 + wc r v - wc A / r = 0   =>   K = wc*A [м^3/с^2].
+    ПРЕЖНЯЯ РЕДАКЦИЯ-4 была РАЗМЕРНО НЕВЕРНА: множитель wc потерян, стартовая
+    скорость получалась ~1 м/с, эталон расходился в nan.
+    Меньший корень в устойчивой форме: v(r) = 2K / ( r*( sqrt(K^2/r^2 + 4 K wc r) + K/r ) ).
+    На катоде K<<wc r^3 => v(r_k) ~= K/(2 r_k) = vd/2 — «двойное расхождение» с чистым
+    E×B-дрейфом физично (круговая орбита учитывает центробежный член)."""
+    K = A_hull                          # м^2/с — константа Халла (A=Va/(B lnAB))
+    s = np.sqrt(K**2 + 4*K*wc*rr**3)    # [м^6/с^4] -> м^3/с^2 (редакция-5.1:
+                                        # прежняя запись K**2/rr**2+4*K*wc*rr смешивала
+                                        # разные степени r и давала v~1 м/с)
+    return 2*K/(rr*s + K)               # м/с; при rr=rk: ~= K/(2 wc rk^2)=vd/2
 
 def init_cloud(bunched=False, psi0=5.8, dpsi=0.6):
     rs = rk + rng.uniform(0.5e-6, 2.5e-6, M)
@@ -164,15 +166,26 @@ def hull_ref(T_ns=1.0):
     vth = -hull_vth(rs)
     px = m_e*vth*(-np.sin(ths)); py = m_e*vth*np.cos(ths); pz = np.zeros(M)
     W0 = (px**2+py**2+pz**2)/(2*m_e)/e
-    nt = int(T_ns*1e-9/dt)
+    # dt <= 0.04/wc — разрешение ларморовского вращения (редакция-5: при
+    # dt=0,3 пс шаг неустойчив и орбита расходилась; эталон Халла требует
+    # wc*dt <~ 0.04 рад). T_ns=1.0 => 8000 шагов, M=1500 — ~секунды.
+    dt_eff = globals()["dt"]
+    nt = int(T_ns*1e-9/dt_eff)
     for i in range(nt):
+        dt = dt_eff
         Er = gather(rs, ths, np.tile((static_Er[:,None]), (1,Nth)))
-        Ex = Er*np.cos(ths); Ey = Er*np.sin(ths)
-        qm_dt2 = e*dt/(2*m_e); tz = qm_dt2*B
+        # сила на электрон (q=-e): F_r = -e*Er + e*v_phi*B -> в декартовых
+        # E-часть со знаком МИНУС (редакция-5: прежний знак "+qm*E" раскручивал
+        # орбиту до релятивистских p и давал nan при dt-ошибке ниже)
+        Ex = -Er*np.cos(ths); Ey = -Er*np.sin(ths)
+        # Boris для q=-e: поворот на -wc*dt => tan_half = -e*B*dt/(2m)
+        qm_dt2 = e*dt/(2*m_e); tz = -qm_dt2*B
         pxh = px + qm_dt2*Ex; pyh = py + qm_dt2*Ey
         ang = -2*math.atan(tz); ca, sa = math.cos(ang), math.sin(ang)
         pxp = ca*pxh - sa*pyh; pyp = sa*pxh + ca*pyh
         px = pxp + qm_dt2*Ex; py = pyp + qm_dt2*Ey
+        # не релятивистский пуш: v = p/m_e без деления на gamma — при случайном
+        # выбросе p орбита не уходит в лавину (защита эталона от nan)
         rs = rs + px/m_e*dt; ths = ths + py/m_e/rs*dt
     W = (px**2+py**2+pz**2)/(2*m_e)/e
     if not np.isfinite(W).all():
