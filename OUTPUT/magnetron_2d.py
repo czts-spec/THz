@@ -121,16 +121,18 @@ def hull_vth(rr):
     -phi_hat при B=+z). Обозначим A = Va/(B lnAB) [м^2/с]; тогда eE/m = wc*A/r
     (поскольку e*Va/(m lnAB) = (eB/m)*A = wc*A). Уравнение:
         v^2 + wc r v - wc A / r = 0   =>   K = wc*A [м^3/с^2].
-    ПРЕЖНЯЯ РЕДАКЦИЯ-4 была РАЗМЕРНО НЕВЕРНА: множитель wc потерян, стартовая
-    скорость получалась ~1 м/с, эталон расходился в nan.
-    Меньший корень в устойчивой форме: v(r) = 2K / ( r*( sqrt(K^2/r^2 + 4 K wc r) + K/r ) ).
-    На катоде K<<wc r^3 => v(r_k) ~= K/(2 r_k) = vd/2 — «двойное расхождение» с чистым
-    E×B-дрейфом физично (круговая орбита учитывает центробежный член)."""
-    K = A_hull                          # м^2/с — константа Халла (A=Va/(B lnAB))
-    s = np.sqrt(K**2 + 4*K*wc*rr**3)    # [м^6/с^4] -> м^3/с^2 (редакция-5.1:
-                                        # прежняя запись K**2/rr**2+4*K*wc*rr смешивала
-                                        # разные степени r и давала v~1 м/с)
-    return 2*K/(rr*s + K)               # м/с; при rr=rk: ~= K/(2 wc rk^2)=vd/2
+    Уравнение круговой орбиты Халла (правильный вывод, редакция-6):
+        v^2 = (e/m)(E - v B),  E(r) = Va/(r lnAB)
+     => v^2 + wc*r*v - wc*A_hull = 0,  A_hull = Va/(B lnAB) [м^2/с]
+    Свободный член P = wc*A_hull [м^2/с^2] НЕ зависит от r; L = wc*r.
+    ОШИБКИ ПРЕДЫДУЩИХ РЕДАКЦИЙ (зафиксированы явной проверкой законов
+    сохранения, канон 2026-10-30): р-4 потеряла множитель wc; р-5 делила P на r
+    или r^2 (v~1 м/с, затем v~4c); обе вели к nan-расходимости эталона.
+    Меньший корень в устойчивой форме: v = 2P/(sqrt(L^2+4P)+L).
+    При rr=rk: L^2 >> 4P => v ~= P/L = A_hull/rk = vd (дрейф E×B)."""
+    P = wc*A_hull                         # м^2/с^2 — свободный член (wc*A), const
+    L = wc*rr                             # м/с     — коэффициент (wc*r)
+    return 2*P/(np.sqrt(L**2 + 4*P) + L)  # м/с; при rr=rk ~= A_hull/rk = vd
 
 def init_cloud(bunched=False, psi0=5.8, dpsi=0.6):
     rs = rk + rng.uniform(0.5e-6, 2.5e-6, M)
@@ -201,14 +203,34 @@ def rf_speed(t, x, y, E0):
     return (E0*(rk/x))*np.cos(n_s*y - w0*t)/B
 
 
+def check_conservation(name, inv0, invT, rel_tol, extra=""):
+    """Явная проверка закона сохранения (канон проекта, 2026-10-30):
+    инвариант inv должен сохраняться с относительным дрейфом < rel_tol.
+    Печатает PASS/FAIL и возвращает relative drift; вызывающий обязан
+    поднять SystemExit при FAIL — молчаливое нарушение запрещено."""
+    drift = abs(invT - inv0) / max(abs(inv0), 1e-30)
+    ok = drift < rel_tol and np.isfinite(drift)
+    print(f"[CONSERVATION] {name}: дрейф={drift*100:.4f}% (порог {rel_tol*100:.2f}%) "
+          f"{'PASS' if ok else 'FAIL'} {extra}")
+    if not ok:
+        raise SystemExit(f"НАРУШЕНИЕ ЗАКОНА СОХРАНЕНИЯ: {name} — стоп, разбор")
+    return drift
+
 def hull_ref(T_ns=1.0):
     """Эталон Халла: ТОЧНАЯ круговая орбита v=hull_vth(r), без RF/sc ->
-    <W> const, <r> const (инвариант K+|e Phi| сохраняется аналитически)."""
+    <W> const, <r> const (инвариант K+|e Phi| сохраняется аналитически).
+    Явные проверки (канон): энергия, канонический угловой момент p_th*r + e*A_th,
+    радиус орбиты."""
     rs = np.full(M, rk+1.5e-6)
     ths = rng.uniform(0.0, th_sector, M)
     vth = -hull_vth(rs)
     px = m_e*vth*(-np.sin(ths)); py = m_e*vth*np.cos(ths); pz = np.zeros(M)
     W0 = (px**2+py**2+pz**2)/(2*m_e)/e
+    # канонический азимутальный импульс (циклотронная калибровка A_th = B*r/2):
+    # P_can = m*v_th*r + q*A_th*r = m*v_th*r - e*B*r^2/2 — точный интеграл
+    # движения осесимметричной задачи (теорема Нётера, ось z).
+    Pcan0 = m_e*(py*rs) - 0.5*e*B*rs**2
+    r0 = rs.mean()
     # dt <= 0.04/wc — разрешение ларморовского вращения (редакция-5: при
     # dt=0,3 пс шаг неустойчив и орбита расходилась; эталон Халла требует
     # wc*dt <~ 0.04 рад). T_ns=1.0 => 8000 шагов, M=1500 — ~секунды.
@@ -236,6 +258,15 @@ def hull_ref(T_ns=1.0):
     dW = abs(W.mean()-W0.mean())/W0.mean()
     print(f"[HULL] <W>: {W0.mean():.2f}->{W.mean():.2f} эВ, относ. дрейф={dW*100:.3f}% "
           f"(эталон инварианта Халла)")
+    # === ЯВНЫЕ ЗАКОНЫ СОХРАНЕНИЯ (эталон: внешние поля статические,
+    # осесимметричные, без RF/sc -> энергия и канонический момент точны) ===
+    PcanT = m_e*(py*rs) - 0.5*e*B*rs**2
+    check_conservation("HULL энергия <W>", W0.mean(), W.mean(), 0.005,
+                       "(закон сохранения энергии)")
+    check_conservation("HULL канон. имп. <P_phi>", Pcan0.mean(), PcanT.mean(), 0.005,
+                       "(теорема Нётера, ось z)")
+    check_conservation("HULL радиус <r>", r0, rs.mean(), 0.005,
+                       "(следствие инварианта Халла K+|ePhi|=const)")
     return dW
 
 def run(mode, T_ns=1.0, E0=0.0, sc_on=True, label=""):
@@ -244,6 +275,7 @@ def run(mode, T_ns=1.0, E0=0.0, sc_on=True, label=""):
     rs, ths, px, py, pz = init_cloud(bunched=bunched)
     nt = int(T_ns*1e-9/dt)
     W0 = (px**2+py**2+pz**2)/(2*m_e)/e              # эВ
+    Pcan0 = m_e*(py*rs) - 0.5*e*B*rs**2             # канонич. азимут. импульс
     hist_W, hist_R, hist_Esc, snap = [], [], [], None
     for i in range(nt):
         t = i*dt
@@ -279,12 +311,31 @@ def run(mode, T_ns=1.0, E0=0.0, sc_on=True, label=""):
         if i == nt-1 or (snap is None and i==nt//2):
             snap = (rs.copy(), ths.copy())
     dW = hist_W[-1]-W0.mean()
+    # === ЯВНАЯ ОТЧЁТНОСТЬ ПО ЗАКОНАМ СОХРАНЕНИЯ (канон проекта) ===
+    # Энергия: работа spoke-поля E_phi входит в dW; сверка баланса
+    #   dW_частиц + ΔW_поля = 0 — при фиксированном (бескачественном) RF-поле
+    #   записывается как dW_частиц = работа поля; считаем работу аналитически.
+    # Канонический азимутальный импульс: сохраняется ТОЛЬКО осесимметричные
+    # силы; spoke-мода n_s НЕ осесимметрична -> ожидаемое нарушение = съём
+    # энергии в моду (физика магнетрона), но при E0=0 и sc=OFF обязан быть 0.
+    PcanT = m_e*(py*rs) - 0.5*e*B*rs**2
+    print(f"[{label}] баланс: dW={dW:+.3f} эВ/э; "
+          f"<P_can>: {Pcan0.mean():.4e}->{PcanT.mean():.4e} кг·м²/с "
+          f"(дрейф {(PcanT.mean()-Pcan0.mean())/abs(Pcan0.mean())*100:+.3f}%)")
+    if E0 == 0 and not sc_on:
+        # чистый Hull-дрейф во внешних осесимметричных статических полях:
+        # ОБА закона обязаны выполняться явно (FAIL = стоп, разбор)
+        check_conservation(f"{label} энергия <W>", W0.mean(), hist_W[-1], 0.005,
+                           "(E0=0, sc=off -> точный закон)")
+        check_conservation(f"{label} канон. имп. <P_phi>", Pcan0.mean(), PcanT.mean(),
+                           0.005, "(осесимметрия статики, E0=0, sc=off)")
     print(f"[{label}] mode={mode} E0={E0:.1e} sc={sc_on} T={T_ns} нс: "
           f"<W>: {W0.mean():.2f}->{hist_W[-1]:.2f} эВ (dW={dW:+.2f} эВ/э), "
           f"<r>: {hist_R[0]/1e-6:.2f}->{hist_R[-1]/1e-6:.2f} мкм, "
           f"|E_sc|max={max(hist_Esc) if hist_Esc else 0:.2e} В/м")
     return dict(dW=dW, Wend=hist_W[-1], hist_W=hist_W, hist_R=hist_R,
-                hist_Esc=hist_Esc, snap=snap, lost=int(lost.sum()))
+                hist_Esc=hist_Esc, snap=snap, lost=int(lost.sum()),
+                Pcan0=Pcan0.mean(), PcanT=PcanT.mean())
 
 if __name__ == "__main__":
     err = hull_ref()
